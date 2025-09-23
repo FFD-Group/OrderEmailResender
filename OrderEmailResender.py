@@ -12,7 +12,12 @@ MAX_EMAIL_ATTEMPTS = os.getenv("MAX_EMAIL_ATTEMPTS")
 ORG_ID = os.getenv("ORG_ID")
 WEB_DOMAIN = os.getenv("WEB_DOMAIN")
 WEB_ORDER_EP = WEB_DOMAIN + os.getenv("WEB_ORDER_API_ENDPOINT")
-WEB_ORDER_FIELDS = "items[entity_id,increment_id,email_sent,status,status_histories[comment]],errors,message,code,trace,parameters,total_count"
+WEB_ORDER_FIELDS = (
+    "items["
+    + "entity_id,increment_id,email_sent,status,status_histories[comment]"
+    + "]"
+    + ",errors,message,code,trace,parameters,total_count"
+)
 WEB_HEADERS = {
     "Authorization": os.getenv("WEB_AUTH_HEADER_VALUE"),
     os.getenv("WEB_SECRET_NAME"): os.getenv("WEB_SECRET_PASS"),
