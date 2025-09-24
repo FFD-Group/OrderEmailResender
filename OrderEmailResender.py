@@ -6,7 +6,7 @@ import requests
 
 load_dotenv()
 
-MAX_EMAIL_ATTEMPTS = os.getenv("MAX_EMAIL_ATTEMPTS")
+MAX_EMAIL_ATTEMPTS = int(os.getenv("MAX_EMAIL_ATTEMPTS"))
 
 # WEB VARIABLES
 WEB_DOMAIN = os.getenv("WEB_DOMAIN")
@@ -33,17 +33,20 @@ def check_daylight_savings_time():
         "https://timeapi.io/api/timezone/zone?timeZone=Europe%2FLondon",
         headers=headers,
     )
+    response_json = time_response.json()
     # The JSON response object should have a 'isDayLightSavingActive' property.
-    active_DST = (
-        True if time_response.json()["isDayLightSavingActive"] else False
-    )
+    if "isDayLightSavingActive" in response_json:
+        active_DST = True if response_json["isDayLightSavingActive"] else False
+    else:
+        # Assume DST as this will cover a larger time period.
+        active_DST = True
     if active_DST:
         SYNC_PERIOD_TIME_STR = SYNC_PERIOD_TIME.subtract(
             hours=1
         ).to_datetime_string()
 
 
-def fetch_unsent_orders():
+def fetch_unsent_orders() -> list:
     """Build and send a request to Magento to fetch unsent orders."""
     global SYNC_PERIOD_TIME_STR, WEB_HEADERS, WEB_DOMAIN
     WEB_ORDER_FIELDS = (
@@ -93,7 +96,7 @@ def fetch_unsent_orders():
             "orders since",
             SYNC_PERIOD_TIME_STR,
         )
-        print(json_response["items"])
+    return list(json_response["items"])
 
 
 def process_orders(orders: list) -> None:
@@ -103,7 +106,7 @@ def process_orders(orders: list) -> None:
     global MAX_EMAIL_ATTEMPTS
     for order in orders:
         attempts = _check_resend_attempts(order)
-        order_outcome = f"Order {order.increment_id} "
+        order_outcome = f"Order {order['increment_id']} "
         if attempts >= MAX_EMAIL_ATTEMPTS:
             _alert_admin(order)
             _email_order_to_sales(order)
@@ -138,7 +141,7 @@ def _resend_order_with_magento(order) -> None:
 
 def log_order_outcome(details) -> None:
     """Log the outcome of processing an order."""
-    pass
+    print(details)
 
 
 if __name__ == "__main__":
