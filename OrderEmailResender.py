@@ -136,7 +136,21 @@ def _check_resend_attempts(order) -> int:
 def _alert_admin(order) -> None:
     """Alert the admin that an order has reached the maximum number of resend
     retries and will be manually sent to the sales inbox."""
-    pass
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    if "entity_id" not in order:
+        raise ValueError("Invalid order object")
+    if "increment_id" not in order:
+        raise ValueError("Invalid order object")
+
+    order_id = order["entity_id"]
+    incr_id = order["increment_id"]
+    payload = {
+        "entity_id": order_id,
+        "increment_id": incr_id,
+        "message": f"Order {incr_id} ({order_id})"
+        + " could not be sent by Magento and has been manually sent to sales.",
+    }
+    requests.post(WEBHOOK_URL, json=payload)
 
 
 def _email_order_to_sales(order) -> None:

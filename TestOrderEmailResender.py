@@ -155,6 +155,55 @@ class TestOrderEmailResender(unittest.TestCase):
         attempts = OrderEmailResender._check_resend_attempts(test_order_obj)
         self.assertEqual(attempts, len(test_order_obj["status_histories"]))
 
+    def test_alert_admin(self):
+        """Test sending an alert to admin."""
+        PREFIX = OrderEmailResender.COMMENT_PREFIX
+        WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+        test_order_obj = {
+            "email_sent": 0,
+            "entity_id": random.randint(10_000, 99_999),
+            "increment_id": "60000" + str(random.randint(10_000, 99_999)),
+            "status": random.choice(
+                ["processing", "new", "pending_payment", "complete"]
+            ),
+            "status_histories": [
+                {"comment": PREFIX + " Attempt #1"},
+                {"comment": PREFIX + " Attempt #2"},
+                {"comment": PREFIX + " Attempt #3"},
+            ],
+        }
+
+        # Test successful alert sent
+        requests.post = Mock(
+            return_value=MockResponse({"message": "success"}, 200)
+        )
+        OrderEmailResender._alert_admin(test_order_obj)
+        order_entity_id = test_order_obj["entity_id"]
+        order_increment_id = test_order_obj["increment_id"]
+        requests.post.assert_called_once_with(
+            WEBHOOK_URL,
+            json={
+                "entity_id": order_entity_id,
+                "increment_id": order_increment_id,
+                "message": f"Order {order_increment_id} ({order_entity_id})"
+                + " could not be sent by Magento and has been manually sent to sales.",
+            },
+        )
+
+        # Test alert webhook unavailable
+        requests.post = Mock(return_value=MockResponse({}, 500))
+        OrderEmailResender._alert_admin(test_order_obj)
+        requests.post.assert_called_once_with(
+            WEBHOOK_URL,
+            json={
+                "entity_id": order_entity_id,
+                "increment_id": order_increment_id,
+                "message": f"Order {order_increment_id} ({order_entity_id})"
+                + " could not be sent by Magento and has been manually sent to sales.",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
