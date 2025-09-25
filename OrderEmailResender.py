@@ -7,6 +7,7 @@ import requests
 load_dotenv()
 
 MAX_EMAIL_ATTEMPTS = int(os.getenv("MAX_EMAIL_ATTEMPTS"))
+COMMENT_PREFIX = str(os.getenv("COMMENT_PREFIX"))
 
 # WEB VARIABLES
 WEB_DOMAIN = os.getenv("WEB_DOMAIN")
@@ -120,7 +121,16 @@ def process_orders(orders: list) -> None:
 def _check_resend_attempts(order) -> int:
     """Check the order's comments to parse how many attempts have been made
     to resend the order email already."""
-    pass
+    global COMMENT_PREFIX
+    if "status_histories" not in order:
+        return 0
+    order_comments = order["status_histories"]
+    if len(order_comments) == 0:
+        return 0
+    attempts = sum(
+        1 for n in order_comments if n["comment"].startswith(COMMENT_PREFIX)
+    )
+    return attempts
 
 
 def _alert_admin(order) -> None:

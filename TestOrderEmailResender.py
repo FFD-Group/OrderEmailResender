@@ -114,6 +114,47 @@ class TestOrderEmailResender(unittest.TestCase):
             OrderEmailResender.fetch_unsent_orders()
         requests.get.assert_called()
 
+    def test_check_resend_attempts(self):
+        """Test checking how many attempts to resend have been made
+        on an order by parsing the order's comment history for
+        comments starting with the prefix."""
+        PREFIX = OrderEmailResender.COMMENT_PREFIX
+
+        # Test normal expected operation
+        test_order_obj = {
+            "email_sent": 0,
+            "entity_id": random.randint(10_000, 99_999),
+            "increment_id": "60000" + str(random.randint(10_000, 99_999)),
+            "status": random.choice(
+                ["processing", "new", "pending_payment", "complete"]
+            ),
+            "status_histories": [
+                {"comment": PREFIX + " Attempt #1"},
+                {"comment": PREFIX + " Attempt #2"},
+            ],
+        }
+        attempts = OrderEmailResender._check_resend_attempts(test_order_obj)
+        self.assertEqual(attempts, 2)
+
+        # Test no comments on order
+        test_order_obj["status_histories"] = []
+        attempts = OrderEmailResender._check_resend_attempts(test_order_obj)
+        self.assertEqual(attempts, 0)
+
+        # Test missing "status_histories" on order object
+        del test_order_obj["status_histories"]
+        attempts = OrderEmailResender._check_resend_attempts(test_order_obj)
+        self.assertEqual(attempts, 0)
+
+        # Test more comments than expected on order object
+        test_order_obj["status_histories"] = []
+        for i in range(4, random.randint(5, 50)):
+            test_order_obj["status_histories"].append(
+                {"comment": PREFIX + f" Attempt #{i}"}
+            )
+        attempts = OrderEmailResender._check_resend_attempts(test_order_obj)
+        self.assertEqual(attempts, len(test_order_obj["status_histories"]))
+
 
 if __name__ == "__main__":
     unittest.main()
