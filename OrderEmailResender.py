@@ -56,7 +56,7 @@ def fetch_unsent_orders() -> list:
         + "]"
         + ",errors,message,code,trace,parameters,total_count"
     )
-    WEB_ORDER_EP = WEB_DOMAIN + os.getenv("WEB_ORDER_API_ENDPOINT")
+    WEB_ORDER_EP = WEB_DOMAIN + os.getenv("WEB_ORDERS_API_ENDPOINT")
     # Two 'filter_groups' which combine to form an AND relationship in the criteria.
     order_criteria_parameters = {
         "searchCriteria[filter_groups][0][filters][0][field]": "created_at",
@@ -136,7 +136,7 @@ def _check_resend_attempts(order) -> int:
 def _alert_admin(order) -> None:
     """Alert the admin that an order has reached the maximum number of resend
     retries and will be manually sent to the sales inbox."""
-    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL")
     if "entity_id" not in order:
         raise ValueError("Invalid order object")
     if "increment_id" not in order:
@@ -150,12 +150,46 @@ def _alert_admin(order) -> None:
         "message": f"Order {incr_id} ({order_id})"
         + " could not be sent by Magento and has been manually sent to sales.",
     }
-    requests.post(WEBHOOK_URL, json=payload)
+    requests.post(ALERT_WEBHOOK_URL, json=payload)
 
 
 def _email_order_to_sales(order) -> None:
     """Email the order details to the sales inbox manually."""
-    pass
+    if "entity_id" not in order:
+        raise ValueError("No entity ID present on order.")
+    WEB_ORDER_API_ENDPOINT = os.getenv("WEB_DOMAIN") + os.getenv(
+        "WEB_ORDER_API_ENDPOINT"
+    )
+    EMAIL_WEBHOOK_URL = os.getenv("EMAIL_WEBHOOK_URL")
+    get_order_url = WEB_ORDER_API_ENDPOINT + str(order["entity_id"])
+    api_response = requests.get(get_order_url)
+    if api_response.status_code != 200:
+        raise api_response.raise_for_status()
+    full_order = api_response.json()
+    # Using the first instance of shipping assignment which
+    # works for FFD's business logic.
+    order_payload = {
+        "customer_name": full_order["customer_name"],
+        "increment_id": full_order["increment_id"],
+        "billing_address": full_order["billing_address"],
+        "shipping_address": full_order["extension_attributes"][
+            "shipping_assignments"
+        ][0]["shipping"]["address"],
+        "payment_method": full_order["payment"]["method"],
+        "shipping_method": full_order["extension_attributes"][
+            "shipping_assignments"
+        ][0]["shipping"]["method"],
+        "items": full_order["items"],
+        "shipping_cost": full_order["extension_attributes"][
+            "shipping_assignments"
+        ][0]["shipping"]["total"],
+        "subtotal": full_order["subtotal"],
+        "grand_total": full_order["grand_total"],
+        "order_comment": full_order[os.getenv("WEB_ORDER_COMMENT_FIELD")],
+    }
+    webhook_response = requests.post(EMAIL_WEBHOOK_URL, json=order_payload)
+    if webhook_response.status_code != 200:
+        raise webhook_response.raise_for_status()
 
 
 def _resend_order_with_magento(order) -> None:

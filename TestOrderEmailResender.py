@@ -1,11 +1,13 @@
-import io
-from unittest.mock import MagicMock, Mock
+from datetime import datetime
+from faker import Faker
 import OrderEmailResender
 import os
-import pendulum
 import random
 import requests
 import unittest
+from unittest.mock import MagicMock, Mock
+
+fake = Faker("en_GB")
 
 
 class MockResponse:
@@ -16,34 +18,50 @@ class MockResponse:
     def json(self):
         return self.json_data
 
+    def raise_for_status(self):
+        if 400 <= self.status_code < 500:
+            http_error_msg = f"{self.status_code} Client Error"
+
+        elif 500 <= self.status_code < 600:
+            http_error_msg = f"{self.status_code} Server Error"
+
+        if http_error_msg:
+            raise requests.HTTPError(http_error_msg, response=self)
+
 
 class TestOrderEmailResender(unittest.TestCase):
     def test_check_daylight_savings_time(self):
         """Test checking daylight savings time and how the function
-        handles API availability or response changes."""
+        handles API availability or response changes.
 
+        Assumptions are made;
+        1. The ORDER_AGE_MINS value is set to a double digit value.
+            I.E. not 1440 (1 day)
+        2. This test will be run during business hours where checking for overlap
+            of days won't be necessary.
+        """
+        DT_FORMAT = "%Y-%m-%d %H:%M:%S"
         ORDER_AGE_MINS = int(os.getenv("ORDER_AGE_MINS"))
         # Test API returns expected data
         requests.get = MagicMock(
             return_value=MockResponse({"isDayLightSavingActive": True}, 200)
         )
         OrderEmailResender.check_daylight_savings_time()
-        self.assertEqual(
-            OrderEmailResender.SYNC_PERIOD_TIME_STR,
-            pendulum.now()
-            .subtract(hours=1, minutes=ORDER_AGE_MINS)
-            .to_datetime_string(),
-        )
+        sync_period_day = datetime.strptime(
+            OrderEmailResender.SYNC_PERIOD_TIME_STR, DT_FORMAT
+        ).date()
+        self.assertEqual(sync_period_day, datetime.today().date())
         requests.get.assert_called()
 
         # Test API returns unexpected data
         requests.get = MagicMock(return_value=MockResponse({"foo": "bar"}, 200))
         OrderEmailResender.check_daylight_savings_time()
+        sync_period_day = datetime.strptime(
+            OrderEmailResender.SYNC_PERIOD_TIME_STR, DT_FORMAT
+        ).date()
         self.assertEqual(
-            OrderEmailResender.SYNC_PERIOD_TIME_STR,
-            pendulum.now()
-            .subtract(hours=1, minutes=ORDER_AGE_MINS)
-            .to_datetime_string(),
+            sync_period_day,
+            datetime.today().date(),
         )
         requests.get.assert_called()
 
@@ -52,11 +70,12 @@ class TestOrderEmailResender(unittest.TestCase):
         requests.get.side_effect = requests.exceptions.ConnectionError()
         with self.assertRaises(requests.exceptions.ConnectionError):
             OrderEmailResender.check_daylight_savings_time()
+        sync_period_day = datetime.strptime(
+            OrderEmailResender.SYNC_PERIOD_TIME_STR, DT_FORMAT
+        ).date()
         self.assertEqual(
-            OrderEmailResender.SYNC_PERIOD_TIME_STR,
-            pendulum.now()
-            .subtract(hours=1, minutes=ORDER_AGE_MINS)
-            .to_datetime_string(),
+            sync_period_day,
+            datetime.today().date(),
         )
         requests.get.assert_called()
 
@@ -158,7 +177,7 @@ class TestOrderEmailResender(unittest.TestCase):
     def test_alert_admin(self):
         """Test sending an alert to admin."""
         PREFIX = OrderEmailResender.COMMENT_PREFIX
-        WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+        ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL")
 
         test_order_obj = {
             "email_sent": 0,
@@ -182,7 +201,7 @@ class TestOrderEmailResender(unittest.TestCase):
         order_entity_id = test_order_obj["entity_id"]
         order_increment_id = test_order_obj["increment_id"]
         requests.post.assert_called_once_with(
-            WEBHOOK_URL,
+            ALERT_WEBHOOK_URL,
             json={
                 "entity_id": order_entity_id,
                 "increment_id": order_increment_id,
@@ -195,12 +214,210 @@ class TestOrderEmailResender(unittest.TestCase):
         requests.post = Mock(return_value=MockResponse({}, 500))
         OrderEmailResender._alert_admin(test_order_obj)
         requests.post.assert_called_once_with(
-            WEBHOOK_URL,
+            ALERT_WEBHOOK_URL,
             json={
                 "entity_id": order_entity_id,
                 "increment_id": order_increment_id,
                 "message": f"Order {order_increment_id} ({order_entity_id})"
                 + " could not be sent by Magento and has been manually sent to sales.",
+            },
+        )
+
+    def test_email_order_to_sales(self):
+        """Test sending the order details to a service which
+        will email the sales team."""
+        PREFIX = OrderEmailResender.COMMENT_PREFIX
+        EMAIL_WEBHOOK_URL = os.getenv("EMAIL_WEBHOOK_URL")
+        WEB_ORDER_API_ENDPOINT = os.getenv("WEB_DOMAIN") + os.getenv(
+            "WEB_ORDER_API_ENDPOINT"
+        )
+
+        test_order_obj = {
+            "email_sent": 0,
+            "entity_id": random.randint(10_000, 99_999),
+            "increment_id": "60000" + str(random.randint(10_000, 99_999)),
+            "status": random.choice(
+                ["processing", "new", "pending_payment", "complete"]
+            ),
+            "status_histories": [
+                {"comment": PREFIX + " Attempt #1"},
+                {"comment": PREFIX + " Attempt #2"},
+                {"comment": PREFIX + " Attempt #3"},
+            ],
+        }
+        order_increment_id = test_order_obj["increment_id"]
+        order_entity_id = str(test_order_obj["entity_id"])
+
+        # Test successful API call for order details + successful webhook sent
+        order_company_name = fake.company()
+        mock_api_order = {
+            "customer_name": order_company_name,
+            "increment_id": order_increment_id,
+            "items": [
+                {
+                    "name": "A fake item",
+                    "sku": fake.first_name(),
+                    "qty_ordered": random.randint(1, 99),
+                    "row_total": random.uniform(0.01, 99.99),
+                }
+            ],
+            "billing_address": {
+                "city": fake.city(),
+                "company": order_company_name,
+                "email": fake.email(),
+                "firstname": fake.first_name(),
+                "lastname": fake.last_name(),
+                "postcode": fake.postcode(),
+                "region": fake.city(),
+                "street": [
+                    fake.street_address(),
+                    fake.street_name(),
+                ],
+                "telephone": fake.phone_number(),
+            },
+            "payment": {
+                "method": random.choice(["BACS", "Card", "Cash", "Cheque"]),
+            },
+            "subtotal": random.uniform(0.01, 99_999),
+            "grand_total": random.uniform(0.01, 99_999),
+            "extension_attributes": {
+                "shipping_assignments": [
+                    {
+                        "shipping": {
+                            "address": {
+                                "city": fake.city(),
+                                "company": order_company_name,
+                                "email": fake.email(),
+                                "firstname": fake.first_name(),
+                                "lastname": fake.last_name(),
+                                "postcode": fake.postcode(),
+                                "region": fake.city(),
+                                "street": [
+                                    fake.street_address(),
+                                    fake.street_name(),
+                                ],
+                                "telephone": fake.phone_number(),
+                            },
+                            "method": "Standard shipping",
+                            "total": {
+                                "shipping_amount": random.uniform(0, 99.99),
+                                "shipping_incl_tax": random.uniform(0, 99.99),
+                            },
+                        },
+                    }
+                ],
+            },
+            os.getenv(
+                "WEB_ORDER_COMMENT_FIELD"
+            ): "Please knock on the red door rather than the blue.",
+        }
+        requests.get = Mock(
+            return_value=MockResponse(
+                mock_api_order,
+                200,
+            )
+        )
+        requests.post = Mock(
+            return_value=MockResponse({"message": "success"}, 200)
+        )
+
+        OrderEmailResender._email_order_to_sales(test_order_obj)
+
+        requests.get.assert_called_once_with(
+            WEB_ORDER_API_ENDPOINT + order_entity_id
+        )
+        requests.post.assert_called_once_with(
+            EMAIL_WEBHOOK_URL,
+            json={
+                "customer_name": order_company_name,
+                "increment_id": order_increment_id,
+                "billing_address": mock_api_order["billing_address"],
+                "shipping_address": mock_api_order["extension_attributes"][
+                    "shipping_assignments"
+                ][0]["shipping"]["address"],
+                "payment_method": mock_api_order["payment"]["method"],
+                "shipping_method": mock_api_order["extension_attributes"][
+                    "shipping_assignments"
+                ][0]["shipping"]["method"],
+                "items": mock_api_order["items"],
+                "shipping_cost": mock_api_order["extension_attributes"][
+                    "shipping_assignments"
+                ][0]["shipping"]["total"],
+                "subtotal": mock_api_order["subtotal"],
+                "grand_total": mock_api_order["grand_total"],
+                "order_comment": mock_api_order[
+                    os.getenv("WEB_ORDER_COMMENT_FIELD")
+                ],
+            },
+        )
+
+        # Test Unsuccessful API call for order details
+        requests.get = Mock(
+            return_value=MockResponse(
+                {
+                    "message": "Example error.",
+                    "errors": [
+                        {
+                            "message": "Order not found.",
+                            "parameters": [
+                                {
+                                    "resources": "Magento_Sales::view_order",
+                                    "fieldName": "{id}",
+                                    "fieldValue": "1234",
+                                }
+                            ],
+                        }
+                    ],
+                    "code": "0",
+                    "parameters": [
+                        {
+                            "resources": "Magento_Sales::view_order",
+                            "fieldName": "{id}",
+                            "fieldValue": "1234",
+                        }
+                    ],
+                    "trace": "No entity for the given id at line 10 of some file.",
+                },
+                401,
+            )
+        )
+        with self.assertRaises(requests.HTTPError):
+            OrderEmailResender._email_order_to_sales(test_order_obj)
+
+        requests.get.assert_called_once_with(
+            WEB_ORDER_API_ENDPOINT + order_entity_id
+        )
+
+        # Test successful API call for order details + webhook unavailable
+        requests.get = Mock(return_value=MockResponse(mock_api_order, 200))
+        requests.post = Mock(return_value=MockResponse({}, 500))
+        with self.assertRaises(requests.HTTPError):
+            OrderEmailResender._email_order_to_sales(test_order_obj)
+        requests.get.assert_called_once_with(
+            WEB_ORDER_API_ENDPOINT + order_entity_id
+        )
+        requests.post.assert_called_once_with(
+            EMAIL_WEBHOOK_URL,
+            json={
+                "customer_name": order_company_name,
+                "increment_id": order_increment_id,
+                "billing_address": mock_api_order["billing_address"],
+                "shipping_address": mock_api_order["extension_attributes"][
+                    "shipping_assignments"
+                ][0]["shipping"]["address"],
+                "payment_method": mock_api_order["payment"]["method"],
+                "shipping_method": mock_api_order["extension_attributes"][
+                    "shipping_assignments"
+                ][0]["shipping"]["method"],
+                "items": mock_api_order["items"],
+                "shipping_cost": mock_api_order["extension_attributes"][
+                    "shipping_assignments"
+                ][0]["shipping"]["total"],
+                "subtotal": mock_api_order["subtotal"],
+                "grand_total": mock_api_order["grand_total"],
+                "order_comment": mock_api_order[
+                    os.getenv("WEB_ORDER_COMMENT_FIELD")
+                ],
             },
         )
 
