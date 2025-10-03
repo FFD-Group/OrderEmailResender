@@ -449,6 +449,18 @@ class TestOrderEmailResender(unittest.TestCase):
         requests.post.assert_called_once_with(WEB_ORDER_EMAIL_API_ENDPOINT)
         self.assertEqual(result, False)
 
+    def test_log_order_outcome(self):
+        """Log the outcome of processing an order."""
+        logger = OrderEmailResender.logger
+        outcome_detail = (
+            "This order was requested to be sent again by Magento. Attempt #3."
+        )
+        with self.assertLogs(logger) as log_output:
+            OrderEmailResender._log_order_outcome(outcome_detail)
+        self.assertEqual(
+            log_output.output, [f"INFO:OrderEmailResender:{outcome_detail}"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

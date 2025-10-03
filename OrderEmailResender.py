@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+import logging
 import pendulum
 import os
 import sys
@@ -22,6 +23,9 @@ time_now = pendulum.now(tz=TIMEZONE)
 ORDER_AGE_MINS = os.getenv("ORDER_AGE_MINS")
 SYNC_PERIOD_TIME = time_now.subtract(minutes=int(ORDER_AGE_MINS))
 SYNC_PERIOD_TIME_STR = SYNC_PERIOD_TIME.to_datetime_string()
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename="order_email_resender.log", level=logging.INFO)
 
 
 def check_daylight_savings_time():
@@ -111,9 +115,13 @@ def process_orders(orders: list) -> None:
             _email_order_to_sales(order)
             order_outcome += "exceeded resend attempts in Magento and has been manually sent to sales."
         else:
-            _resend_order_with_magento(order)
-            order_outcome = f"has been sent for a resend attempt. This is attemp number {attempts + 1}"
-        log_order_outcome(order_outcome)
+            sent = _resend_order_with_magento(order)
+            if sent:
+                order_outcome += f"has been sent for a resend attempt. "
+            else:
+                order_outcome += f"should have been resent with Magento but something went wrong. "
+            order_outcome += f"This is attempt number {attempts + 1}"
+        _log_order_outcome(order_outcome)
 
 
 def _check_resend_attempts(order) -> int:
@@ -189,7 +197,7 @@ def _email_order_to_sales(order) -> None:
         raise webhook_response.raise_for_status()
 
 
-def _resend_order_with_magento(order) -> None:
+def _resend_order_with_magento(order) -> bool:
     """Using the Magento API, request for the order email to be resent."""
     if "entity_id" not in order:
         raise ValueError("No entity ID present on order")
@@ -206,9 +214,9 @@ def _resend_order_with_magento(order) -> None:
     return response.json() == "true"
 
 
-def log_order_outcome(details) -> None:
+def _log_order_outcome(details) -> None:
     """Log the outcome of processing an order."""
-    print(details)
+    logger.info(details)
 
 
 if __name__ == "__main__":
