@@ -1,3 +1,4 @@
+import json
 from dotenv import load_dotenv
 import logging
 import pendulum
@@ -77,28 +78,28 @@ def fetch_unsent_orders() -> list:
     json_response = raw_order_response.json()
     if "total_count" not in json_response:
         if "errors" in json_response and (len(json_response["errors"]) > 0):
-            print("Errors", json_response["errors"])
+            logger.info("Errors" + json.dumps(json_response["errors"]))
 
         elif "message" in json_response:
-            print("Message", json_response["message"])
+            logger.info("Message" + json.dumps(json_response["message"]))
         elif "items" in json_response and json_response["items"]:
-            print("No orders found since", SYNC_PERIOD_TIME_STR)
+            logger.info("No orders found since" + SYNC_PERIOD_TIME_STR)
         else:
-            print(
+            logger.info(
                 "Something happened where the response didn't contain 'total_count' but 'items' wasn't NULL."
             )
-        print("Exiting")
+        logger.info("Exiting")
         sys.exit(0)
     elif json_response["total_count"] == 0:
-        print("No orders found since", SYNC_PERIOD_TIME_STR)
-        print("Exiting")
+        logger.info("No orders found since" + SYNC_PERIOD_TIME_STR)
+        logger.info("Exiting")
         sys.exit(0)
     else:
-        print(
-            "Found",
-            json_response["total_count"],
-            "orders since",
-            SYNC_PERIOD_TIME_STR,
+        logger.info(
+            "Found"
+            + json_response["total_count"]
+            + "orders since"
+            + SYNC_PERIOD_TIME_STR
         )
     return list(json_response["items"])
 
