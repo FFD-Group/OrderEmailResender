@@ -103,7 +103,6 @@ def process_orders(orders: list) -> None:
     """Process each unsent order by either attempting a recorded resend or
     manually sending the details to sales and alerting admin. Either way, log
     the outcome."""
-    global MAX_EMAIL_ATTEMPTS
     for order in orders:
         attempts = _check_resend_attempts(order)
         order_outcome = f"Order {order['increment_id']} "
@@ -120,7 +119,6 @@ def process_orders(orders: list) -> None:
 def _check_resend_attempts(order) -> int:
     """Check the order's comments to parse how many attempts have been made
     to resend the order email already."""
-    global COMMENT_PREFIX
     if "status_histories" not in order:
         return 0
     order_comments = order["status_histories"]
