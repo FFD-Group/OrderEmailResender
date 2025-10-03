@@ -49,7 +49,6 @@ def check_daylight_savings_time():
 
 def fetch_unsent_orders() -> list:
     """Build and send a request to Magento to fetch unsent orders."""
-    global SYNC_PERIOD_TIME_STR, WEB_HEADERS, WEB_DOMAIN
     WEB_ORDER_FIELDS = (
         "items["
         + "entity_id,increment_id,email_sent,status,status_histories[comment]"
@@ -194,7 +193,19 @@ def _email_order_to_sales(order) -> None:
 
 def _resend_order_with_magento(order) -> None:
     """Using the Magento API, request for the order email to be resent."""
-    pass
+    if "entity_id" not in order:
+        raise ValueError("No entity ID present on order")
+    order_entity_id = order["entity_id"]
+    WEB_ORDER_EMAIL_API_ENDPOINT = (
+        os.getenv("WEB_DOMAIN")
+        + os.getenv("WEB_ORDER_API_ENDPOINT")
+        + str(order_entity_id)
+        + "/emails"
+    )
+    response = requests.post(WEB_ORDER_EMAIL_API_ENDPOINT)
+    if response.status_code != 200:
+        response.raise_for_status()
+    return response.json() == "true"
 
 
 def log_order_outcome(details) -> None:

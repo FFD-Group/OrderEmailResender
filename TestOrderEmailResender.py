@@ -421,6 +421,37 @@ class TestOrderEmailResender(unittest.TestCase):
             },
         )
 
+    def test_resend_order_with_magento(self):
+        """Test sending a request to the Magento API to have an order email
+        resent."""
+        order_entity_id = random.randint(1_000, 9_999)
+        WEB_ORDER_EMAIL_API_ENDPOINT = (
+            os.getenv("WEB_DOMAIN")
+            + os.getenv("WEB_ORDER_API_ENDPOINT")
+            + str(order_entity_id)
+            + "/emails"
+        )
+        order_arg = {"entity_id": order_entity_id}
+
+        # Test successfull API call
+        requests.post = Mock(return_value=MockResponse("true", 200))
+        result = OrderEmailResender._resend_order_with_magento(order_arg)
+        requests.post.assert_called_once_with(WEB_ORDER_EMAIL_API_ENDPOINT)
+        self.assertEqual(result, True)
+
+        # Test successful API call but email not sent
+        requests.post = Mock(return_value=MockResponse("false", 200))
+        result = OrderEmailResender._resend_order_with_magento(order_arg)
+        requests.post.assert_called_once_with(WEB_ORDER_EMAIL_API_ENDPOINT)
+        self.assertEqual(result, False)
+
+        # Test unsuccessfull API call
+        requests.post = Mock(return_value=MockResponse({}, 500))
+        with self.assertRaises(requests.HTTPError):
+            result = OrderEmailResender._resend_order_with_magento(order_arg)
+        requests.post.assert_called_once_with(WEB_ORDER_EMAIL_API_ENDPOINT)
+        self.assertEqual(result, False)
+
 
 if __name__ == "__main__":
     unittest.main()
