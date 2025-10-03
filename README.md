@@ -1,3 +1,5 @@
+[![Python application](https://github.com/FFD-Group/OrderEmailResender/actions/workflows/python-app.yml/badge.svg?branch=main)](https://github.com/FFD-Group/OrderEmailResender/actions/workflows/python-app.yml)
+
 # OrderEmailResender
 Poll the Magento API for unsent orders, check their comments to see if attempts have been made to resend (within a threshold) and either uses the API to trigger a resend or alerts admin and sends a backup email to the sales inbox with details.
 
