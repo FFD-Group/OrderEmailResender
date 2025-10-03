@@ -97,7 +97,7 @@ def fetch_unsent_orders() -> list:
     else:
         logger.info(
             "Found"
-            + json_response["total_count"]
+            + str(json_response["total_count"])
             + "orders since"
             + SYNC_PERIOD_TIME_STR
         )
