@@ -34,14 +34,11 @@ class TestOrderEmailResender(unittest.TestCase):
         """Test checking daylight savings time and how the function
         handles API availability or response changes.
 
-        Assumptions are made;
-        1. The ORDER_AGE_MINS value is set to a double digit value.
-            I.E. not 1440 (1 day)
-        2. This test will be run during business hours where checking for overlap
+        Assumption made;
+        1. This test will be run during business hours where checking for overlap
             of days won't be necessary.
         """
         DT_FORMAT = "%Y-%m-%d %H:%M:%S"
-        ORDER_AGE_MINS = int(os.getenv("ORDER_AGE_MINS"))
         # Test API returns expected data
         requests.get = MagicMock(
             return_value=MockResponse({"isDayLightSavingActive": True}, 200)
