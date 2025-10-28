@@ -91,14 +91,14 @@ def fetch_unsent_orders() -> list:
         logger.info("Exiting")
         sys.exit(0)
     elif json_response["total_count"] == 0:
-        logger.info("No orders found since" + SYNC_PERIOD_TIME_STR)
+        logger.info("No orders found since " + SYNC_PERIOD_TIME_STR)
         logger.info("Exiting")
         sys.exit(0)
     else:
         logger.info(
-            "Found"
+            "Found "
             + str(json_response["total_count"])
-            + "orders since"
+            + " orders since "
             + SYNC_PERIOD_TIME_STR
         )
     return list(json_response["items"])
