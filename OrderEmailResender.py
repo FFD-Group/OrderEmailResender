@@ -62,13 +62,12 @@ def fetch_unsent_orders() -> list:
     )
     WEB_ORDER_EP = WEB_DOMAIN + os.getenv("WEB_ORDERS_API_ENDPOINT")
     # Two 'filter_groups' which combine to form an AND relationship in the criteria.
+    # Can't filter by 'email_sent => eq 0' field as it doesn't exist on the order entity
+    #       until it is set to 1.
     order_criteria_parameters = {
         "searchCriteria[filter_groups][0][filters][0][field]": "created_at",
         "searchCriteria[filter_groups][0][filters][0][value]": SYNC_PERIOD_TIME_STR,
         "searchCriteria[filter_groups][0][filters][0][condition_type]": "gteq",
-        "searchCriteria[filter_groups][1][filters][0][field]": "email_sent",
-        "searchCriteria[filter_groups][1][filters][0][value]": 0,
-        "searchCriteria[filter_groups][1][filters][0][condition_type]": "eq",
         "fields": WEB_ORDER_FIELDS,
     }
     raw_order_response = requests.get(
@@ -109,6 +108,9 @@ def process_orders(orders: list) -> None:
     manually sending the details to sales and alerting admin. Either way, log
     the outcome."""
     for order in orders:
+        # If 'email_sent' is set - it has been sent already by Magento.
+        if "email_sent" in order:
+            continue
         attempts = _check_resend_attempts(order)
         order_outcome = f"Order {order['increment_id']} "
         if attempts >= MAX_EMAIL_ATTEMPTS:
@@ -209,7 +211,8 @@ def _resend_order_with_magento(order) -> bool:
         + str(order_entity_id)
         + "/emails"
     )
-    response = requests.post(WEB_ORDER_EMAIL_API_ENDPOINT)
+    response = requests.post(WEB_ORDER_EMAIL_API_ENDPOINT, headers=WEB_HEADERS)
+    logger.info("Magento resending email: " + str(response))
     if response.status_code != 200:
         response.raise_for_status()
     return response.json() == "true"
