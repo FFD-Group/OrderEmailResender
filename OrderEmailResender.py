@@ -8,6 +8,19 @@ import requests
 
 load_dotenv()
 
+LOG_FORMAT = (
+	'ts=%(asctime)s level=%(levelname)s logger=%(name)s '
+	'pid=%(process)d thread=%(threadName)s msg="%(message)s"'
+)
+
+formatter = logging.Formatter(LOG_FORMAT, datefmt="%Y-%m-%dT%H:%M:%S%z")
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setFormatter(formatter)
+
+file_handler = logging.FileHandler("order_email_resender.log")
+file_handler.setFormatter(formatter)
+
 MAX_EMAIL_ATTEMPTS = int(os.getenv("MAX_EMAIL_ATTEMPTS"))
 COMMENT_PREFIX = str(os.getenv("COMMENT_PREFIX"))
 
@@ -25,8 +38,10 @@ ORDER_AGE_MINS = os.getenv("ORDER_AGE_MINS")
 SYNC_PERIOD_TIME = time_now.subtract(minutes=int(ORDER_AGE_MINS))
 SYNC_PERIOD_TIME_STR = SYNC_PERIOD_TIME.to_datetime_string()
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(filename="order_email_resender.log", level=logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.addHandler(stream_handler)
+logger.addHandler(file_handler)
 
 
 def check_daylight_savings_time():
@@ -62,18 +77,22 @@ def fetch_unsent_orders() -> list:
     )
     WEB_ORDER_EP = WEB_DOMAIN + os.getenv("WEB_ORDERS_API_ENDPOINT")
     # Two 'filter_groups' which combine to form an AND relationship in the criteria.
-    # Can't filter by 'email_sent => eq 0' field as it doesn't exist on the order entity
-    #       until it is set to 1.
     order_criteria_parameters = {
         "searchCriteria[filter_groups][0][filters][0][field]": "created_at",
         "searchCriteria[filter_groups][0][filters][0][value]": SYNC_PERIOD_TIME_STR,
         "searchCriteria[filter_groups][0][filters][0][condition_type]": "gteq",
+        #"searchCriteria[filter_groups][1][filters][0][field]": "email_sent",
+        #"searchCriteria[filter_groups][1][filters][0][value]": 0,
+        #"searchCriteria[filter_groups][1][filters][0][condition_type]": "eq",
         "fields": WEB_ORDER_FIELDS,
     }
+    #logger.info("Headers: " + str(WEB_HEADERS))
+    #logger.info("EP: " + str(WEB_ORDER_EP))
     raw_order_response = requests.get(
         WEB_ORDER_EP, headers=WEB_HEADERS, params=order_criteria_parameters
     )
-
+    #logger.info("Raw order response from Magento: " + str(raw_order_response))
+    #logger.info("Content: " + str(raw_order_response.content))
     json_response = raw_order_response.json()
     if "total_count" not in json_response:
         if "errors" in json_response and (len(json_response["errors"]) > 0):
@@ -90,7 +109,7 @@ def fetch_unsent_orders() -> list:
         logger.info("Exiting")
         sys.exit(0)
     elif json_response["total_count"] == 0:
-        logger.info("No orders found since " + SYNC_PERIOD_TIME_STR)
+        logger.info("No orders found since" + SYNC_PERIOD_TIME_STR)
         logger.info("Exiting")
         sys.exit(0)
     else:
@@ -108,9 +127,9 @@ def process_orders(orders: list) -> None:
     manually sending the details to sales and alerting admin. Either way, log
     the outcome."""
     for order in orders:
-        # If 'email_sent' is set - it has been sent already by Magento.
         if "email_sent" in order:
             continue
+        logger.info(order)
         attempts = _check_resend_attempts(order)
         order_outcome = f"Order {order['increment_id']} "
         if attempts >= MAX_EMAIL_ATTEMPTS:
@@ -136,7 +155,7 @@ def _check_resend_attempts(order) -> int:
     if len(order_comments) == 0:
         return 0
     attempts = sum(
-        1 for n in order_comments if n["comment"].startswith(COMMENT_PREFIX)
+        1 for n in order_comments if n["comment"] and n["comment"].startswith(COMMENT_PREFIX)
     )
     return attempts
 
