@@ -9,8 +9,8 @@ import requests
 load_dotenv()
 
 LOG_FORMAT = (
-	'ts=%(asctime)s level=%(levelname)s logger=%(name)s '
-	'pid=%(process)d thread=%(threadName)s msg="%(message)s"'
+    "ts=%(asctime)s level=%(levelname)s logger=%(name)s "
+    'pid=%(process)d thread=%(threadName)s msg="%(message)s"'
 )
 
 formatter = logging.Formatter(LOG_FORMAT, datefmt="%Y-%m-%dT%H:%M:%S%z")
@@ -81,18 +81,18 @@ def fetch_unsent_orders() -> list:
         "searchCriteria[filter_groups][0][filters][0][field]": "created_at",
         "searchCriteria[filter_groups][0][filters][0][value]": SYNC_PERIOD_TIME_STR,
         "searchCriteria[filter_groups][0][filters][0][condition_type]": "gteq",
-        #"searchCriteria[filter_groups][1][filters][0][field]": "email_sent",
-        #"searchCriteria[filter_groups][1][filters][0][value]": 0,
-        #"searchCriteria[filter_groups][1][filters][0][condition_type]": "eq",
+        # "searchCriteria[filter_groups][1][filters][0][field]": "email_sent",
+        # "searchCriteria[filter_groups][1][filters][0][value]": 0,
+        # "searchCriteria[filter_groups][1][filters][0][condition_type]": "eq",
         "fields": WEB_ORDER_FIELDS,
     }
-    #logger.info("Headers: " + str(WEB_HEADERS))
-    #logger.info("EP: " + str(WEB_ORDER_EP))
+    # logger.info("Headers: " + str(WEB_HEADERS))
+    # logger.info("EP: " + str(WEB_ORDER_EP))
     raw_order_response = requests.get(
         WEB_ORDER_EP, headers=WEB_HEADERS, params=order_criteria_parameters
     )
-    #logger.info("Raw order response from Magento: " + str(raw_order_response))
-    #logger.info("Content: " + str(raw_order_response.content))
+    # logger.info("Raw order response from Magento: " + str(raw_order_response))
+    # logger.info("Content: " + str(raw_order_response.content))
     json_response = raw_order_response.json()
     if "total_count" not in json_response:
         if "errors" in json_response and (len(json_response["errors"]) > 0):
@@ -129,6 +129,8 @@ def process_orders(orders: list) -> None:
     for order in orders:
         if "email_sent" in order:
             continue
+        if order["status"] in ["canceled", "pending_payment"]:
+            continue
         logger.info(order)
         attempts = _check_resend_attempts(order)
         order_outcome = f"Order {order['increment_id']} "
@@ -155,7 +157,9 @@ def _check_resend_attempts(order) -> int:
     if len(order_comments) == 0:
         return 0
     attempts = sum(
-        1 for n in order_comments if n["comment"] and n["comment"].startswith(COMMENT_PREFIX)
+        1
+        for n in order_comments
+        if n["comment"] and n["comment"].startswith(COMMENT_PREFIX)
     )
     return attempts
 
